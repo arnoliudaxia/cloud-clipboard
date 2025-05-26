@@ -7,57 +7,35 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
-    strategy:
-      matrix:
-        os:
-          - windows-latest
-          - ubuntu-latest
-          # - macos-latest
+  # This pushes the image to GitHub Packages.
+  push:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+      #
     steps:
       - uses: actions/checkout@v4
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: latest
-          architecture: x64
-          check-latest: true
-          cache: npm
-          cache-dependency-path: "**/package.json"
-      - name: Build executable
+
+      - name: Build image
+        run: docker build . --file Dockerfile --tag $IMAGE_NAME --label "runnumber=${GITHUB_RUN_ID}"
+
+      - name: Log in to registry
+        run: echo "${{ secrets.GHCRTOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        #
+      - name: Push image
         run: |
-          if [ $RUNNER_OS == "Windows" ]; then
-            ext=".exe"
-          else
-            ext=""
-          fi
-          cd client
-          npm install
-          NODE_OPTIONS=--openssl-legacy-provider npm run build
-          cd ../server-node
-          npm install
-          npm install --save-dev caxa
-          npx caxa \
-            --input . \
-            --output "../dist/cloud-clipboard${ext}" \
-            --exclude \
-              ".*" \
-              "config.json" \
-              "package-lock.json" \
-            -- \
-              "{{caxa}}/node_modules/.bin/node" \
-              "{{caxa}}/main.js"
-      - name: Upload result (server)
-        uses: actions/upload-artifact@v4
-        with:
-          name: cloud-clipboard-${{ runner.os }}
-          path: dist
-      - name: Upload result (frontend static files)
-        uses: actions/upload-artifact@v4
-        with:
-          name: static-${{ runner.os }}
-          path: server-node/static
+          IMAGE_ID=ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME
+
+          # This changes all uppercase characters to lowercase.
+          IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
+          # This strips the git ref prefix from the version.
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          # This strips the "v" prefix from the tag name.
+          [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+          # This uses the Docker `latest` tag convention.
+          [ "$VERSION" == "main" ] && VERSION=latest
+          echo IMAGE_ID=$IMAGE_ID
+          echo VERSION=$VERSION
+          docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
+          docker push $IMAGE_ID:$VERSION
