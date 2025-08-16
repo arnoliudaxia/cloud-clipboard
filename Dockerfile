@@ -12,5 +12,5 @@ COPY --from=builder /app/client/dist/ /app/server-node/static/
 WORKDIR /app/server-node
 RUN npm install
 EXPOSE 9501
-CMD ["node", "main.js"]
+CMD ["node", "main.js", "/app/server/config.json"]
 
